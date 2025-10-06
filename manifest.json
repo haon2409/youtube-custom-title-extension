@@ -1,0 +1,18 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Custom Title Extension",
+    "short_name": "YT Remaining",
+    "version": "1.4",
+    "description": "Hiển thị thời gian còn lại và tốc độ phát (nếu ≠1x) cùng tiêu đề video trên tab YouTube, đồng thời kiểm tra trạng thái thời lượng.",
+    "permissions": [],
+    "host_permissions": [
+      "*://*.youtube.com/*"
+    ],
+    "content_scripts": [
+      {
+        "matches": ["*://*.youtube.com/*"],
+        "js": ["content.js"],
+        "run_at": "document_idle"
+      }
+    ]
+  }
