@@ -1,188 +1,156 @@
-// content.js - v1.3 (ổn định, chưa thêm logic livestream)
-
 (function() {
-    const UPDATE_INTERVAL_MS = 1000;
+    const UPDATE_INTERVAL_MS = 5000; // 1000
+    const LIVE_UPDATE_TICKS = 10; // 5
+    const SETTLE_DURATION_MS = 5000; // 5000
+    
     let originalTitle = document.title || 'YouTube';
     let lastSeenVideoId = null;
+    let lastUrl = location.href;
+    let cachedViews = ""; 
+    let liveTickCounter = 0;
+    let videoStartTime = 0;
+    let hasFirstLiveView = false;
+    
     let intervalHandle = null;
     let titleObserver = null;
   
+    function abbreviateNumber(viewStr) {
+        if (!viewStr) return "";
+        // Loại bỏ dấu phẩy/chấm và chuyển về số thuần túy
+        const numericValue = parseFloat(viewStr.replace(/[,.]/g, ''));
+        if (isNaN(numericValue)) return viewStr;
+    
+        // Ngưỡng Triệu (M): 1.1M, 10M, 100M
+        if (numericValue >= 1000000) {
+            return (numericValue / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+        }
+        
+        // Ngưỡng chục nghìn trở lên: 10k, 100k, 999k (Không dùng thập phân)
+        if (numericValue >= 10000) {
+            return Math.floor(numericValue / 1000) + 'k';
+        }
+    
+        // Ngưỡng nghìn (dưới 10k): 1.3k, 5k, 9.9k (Có 1 chữ số thập phân)
+        if (numericValue >= 1000) {
+            return (numericValue / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        }
+    
+        // Dưới 1.000: Giữ nguyên số
+        return Math.floor(numericValue).toString();
+    }
+
     function formatSeconds(totalSeconds) {
-      if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
-      totalSeconds = Math.floor(totalSeconds);
-      const h = Math.floor(totalSeconds / 3600);
-      const m = Math.floor((totalSeconds % 3600) / 60);
-      const s = totalSeconds % 60;
-      return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
+        if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
+        totalSeconds = Math.floor(totalSeconds);
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = totalSeconds % 60;
+        return h > 0 
+            ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` 
+            : `${m}:${String(s).padStart(2,'0')}`;
     }
-  
-    function getVideoElement() {
-      return document.querySelector('video');
-    }
-  
-    function isLiveLabelVisibleOnControls() {
-      // Chỉ kiểm tra nhãn LIVE đúng trên thanh điều khiển
-      // Selector hợp lệ duy nhất
-      const badgeCandidates = ['.ytp-chrome-bottom .ytp-live-badge'];
 
-      const isElVisible = (el) => {
-        if (!el) return false;
-        if (el.getAttribute('aria-hidden') === 'true') return false;
-        if (el.hidden === true) return false;
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return false;
-        const style = window.getComputedStyle(el);
-        if (!style) return false;
-        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') === 0) return false;
-        return true;
-      };
-
-      const isAllowedLiveBadge = (el) => {
-        if (!el || !el.classList) return false;
-        // Bắt buộc có ytp-live-badge và một trong các class trạng thái bên dưới
-        const hasBase = el.classList.contains('ytp-live-badge');
-        const hasLiveState = el.classList.contains('ytp-live-badge-is-live') || el.classList.contains('ytp-live-badge-is-livehead');
-        return hasBase && hasLiveState;
-      };
-
-      for (const sel of badgeCandidates) {
-        const els = document.querySelectorAll(sel);
-        for (const el of els) {
-          if (!isElVisible(el)) continue;
-          if (!isAllowedLiveBadge(el)) continue;
-          const text = (el.textContent || '').trim().toUpperCase();
-          // Yêu cầu khớp chặt: chính xác là LIVE hoặc bắt đầu bằng LIVE
-          if (text === 'LIVE' || text.startsWith('LIVE ')) {
-            // Lưu vào window để popup có thể đọc thông tin debug qua response
-            window.__ytLiveDetect = {
-              matchedSelector: sel,
-              className: el.className || '',
-              text: (el.textContent || '').trim()
-            };
-            return true;
-          }
+    function fetchViewsFromDOM() {
+        const viewCountDiv = document.querySelector('#view-count.ytd-watch-info-text');
+        if (viewCountDiv) {
+            const label = viewCountDiv.getAttribute('aria-label');
+            if (label) {    
+                const match = label.match(/[\d.,]+/);
+                if (match) return abbreviateNumber(match[0].trim());
+            }
         }
-      }
-      window.__ytLiveDetect = undefined;
-      return false;
+        let viewEl = document.querySelector('ytd-video-view-count-renderer span.view-count') || 
+                     document.querySelector('.view-count') ||
+                     document.querySelector('ytd-watch-metadata #description-inline-expander span.bold');
+        
+        if (viewEl && viewEl.innerText.trim().length > 0) {           
+            const rawView = viewEl.innerText.trim().split(/\s/)[0];
+            return abbreviateNumber(rawView);
+        }
+        return "";
     }
-
+  
+    function isLiveVideo() {
+        return !!document.querySelector('.ytp-live-badge[aria-disabled="false"], .ytp-live');
+    }
+  
     function getVideoIdFromUrl() {
-      try {
-        const url = new URL(location.href);
-        // youtu.be/<id>
-        if (url.hostname === 'youtu.be') {
-          const seg = url.pathname.split('/').filter(Boolean);
-          return seg[0] || null;
-        }
-        // watch?v=<id>
-        const vParam = url.searchParams.get('v');
-        if (vParam) return vParam;
-        // shorts/<id>
-        if (url.pathname.startsWith('/shorts/')) {
-          const idPart = url.pathname.slice('/shorts/'.length);
-          return idPart.split('/')[0] || null;
-        }
-        return null;
-      } catch (e) {
-        return null;
-      }
+        try {
+            const url = new URL(location.href);
+            return url.searchParams.get('v') || url.pathname.split('/')[2] || null;
+        } catch (e) { return null; }
     }
   
     function isOurTitle(t) {
-      if (!t || typeof t !== 'string') return false;
-      const timePattern = /^\d{1,2}:\d{2}(?::\d{2})? - /;
-      const ratePattern = /^\d+(?:\.\d+)?x - \d{1,2}:\d{2}(?::\d{2})? - /;
-      return timePattern.test(t) || ratePattern.test(t);
+        if (!t) return false;
+        return /^([\d.,]+[kMtr]?|Live|●) - /.test(t);
     }
   
-    function updateTitle() {
-      const video = getVideoElement();
-      const vidId = getVideoIdFromUrl();
+    function updateEverything() {
+        const vidId = getVideoIdFromUrl();
+        const currentUrl = location.href;
+        const isLive = isLiveVideo();
+        const now = Date.now();
   
-      if (vidId && vidId !== lastSeenVideoId) {
-        lastSeenVideoId = vidId;
-        const cur = document.title;
-        if (!isOurTitle(cur)) originalTitle = cur;
-      }
+        if (currentUrl !== lastUrl || (vidId && vidId !== lastSeenVideoId)) {
+            lastUrl = currentUrl;
+            lastSeenVideoId = vidId;
+            cachedViews = ""; 
+            liveTickCounter = 0;
+            videoStartTime = now;
+            hasFirstLiveView = false;
+            if (!isOurTitle(document.title)) originalTitle = document.title;
+        }
   
-      // Bỏ qua cập nhật cho livestream, giữ nguyên tiêu đề mặc định của YouTube
-      if (isLiveLabelVisibleOnControls()) {
-        if (!isOurTitle(document.title)) {
-          // đã là tiêu đề gốc, giữ nguyên
+        let prefixParts = [];
+
+        if (isLive) {
+            if (!hasFirstLiveView || liveTickCounter % LIVE_UPDATE_TICKS === 0) {
+                const currentLiveViews = fetchViewsFromDOM();
+                if (currentLiveViews) {
+                    cachedViews = currentLiveViews;
+                    hasFirstLiveView = true;
+                }
+            }
+            liveTickCounter++;
+            if (cachedViews) prefixParts.push(cachedViews);
+            prefixParts.push("●"); 
         } else {
-          document.title = originalTitle;
+            const video = document.querySelector('video');
+            if (video && isFinite(video.duration) && video.duration > 0) {
+                if (now - videoStartTime < SETTLE_DURATION_MS) {
+                    const freshViews = fetchViewsFromDOM();
+                    if (freshViews) cachedViews = freshViews;
+                } else if (!cachedViews) {
+                    const lateViews = fetchViewsFromDOM();
+                    if (lateViews) cachedViews = lateViews;
+                }
+                
+                if (cachedViews) prefixParts.push(cachedViews);
+                const remainingStr = formatSeconds(
+                    (video.duration - video.currentTime) / (video.playbackRate || 1)
+                );
+                prefixParts.push(remainingStr);
+            }
         }
-        return;
-      }
 
-      if (!video) {
-        document.title = originalTitle;
-        return;
-      }
-  
-      const duration = video.duration;
-      const currentTime = video.currentTime;
-      const playbackRate = video.playbackRate || 1;
-  
-      if (!isFinite(duration) || duration <= 0) {
-        document.title = originalTitle;
-        return;
-      }
-  
-      const remaining = Math.max(0, duration - currentTime);
-      const remainingStr = formatSeconds(remaining);
-  
-      const newTitle = (Math.abs(playbackRate - 1) > 0.001)
-        ? `${playbackRate.toFixed(2)}x - ${remainingStr} - ${originalTitle}`
-        : `${remainingStr} - ${originalTitle}`;
-  
-      if (document.title !== newTitle) document.title = newTitle;
+        if (prefixParts.length > 0) {
+            const newTitle = `${prefixParts.join(' - ')} - ${originalTitle}`;
+            if (document.title !== newTitle) {
+                document.title = newTitle;
+            }
+        }
     }
   
-    function startInterval() {
-      if (intervalHandle) return;
-      intervalHandle = setInterval(updateTitle, UPDATE_INTERVAL_MS);
-      updateTitle();
-    }
-  
-    function stopInterval() {
-      if (!intervalHandle) return;
-      clearInterval(intervalHandle);
-      intervalHandle = null;
-      document.title = originalTitle;
-    }
-  
-    // Theo dõi thay đổi URL trong YouTube SPA
-    let lastUrl = location.href;
-    const urlCheckInterval = setInterval(() => {
-      if (location.href !== lastUrl) {
-        lastUrl = location.href;
-        const cur = document.title;
-        if (!isOurTitle(cur)) originalTitle = cur;
-      }
-    }, 1000);
-  
-    // Theo dõi thay đổi tiêu đề gốc do YouTube cập nhật
     const titleEl = document.querySelector('title');
-    if (titleEl && typeof MutationObserver !== 'undefined') {
-      titleObserver = new MutationObserver(() => {
-        const cur = document.title;
-        if (!isOurTitle(cur)) {
-          originalTitle = cur;
-        }
-      });
-      titleObserver.observe(titleEl, { childList: true, characterData: true, subtree: true });
+    if (titleEl) {
+        titleObserver = new MutationObserver(() => {
+            if (!isOurTitle(document.title)) originalTitle = document.title;
+        });
+        titleObserver.observe(titleEl, { childList: true });
     }
-
-    startInterval();
   
-    window.addEventListener('unload', () => {
-      stopInterval();
-      clearInterval(urlCheckInterval);
-      if (titleObserver) {
-        try { titleObserver.disconnect(); } catch (_) {}
-        titleObserver = null;
-      }
-    });
-  })();
+    if (intervalHandle) clearInterval(intervalHandle);
+    intervalHandle = setInterval(updateEverything, UPDATE_INTERVAL_MS);
+    updateEverything();
+})();

@@ -1,18 +1,30 @@
 {
-    "manifest_version": 3,
-    "name": "YouTube Custom Title Extension",
-    "short_name": "YT Remaining",
-    "version": "1.4",
-    "description": "Hiển thị thời gian còn lại và tốc độ phát (nếu ≠1x) cùng tiêu đề video trên tab YouTube, đồng thời kiểm tra trạng thái thời lượng.",
-    "permissions": [],
-    "host_permissions": [
-      "*://*.youtube.com/*"
-    ],
-    "content_scripts": [
-      {
-        "matches": ["*://*.youtube.com/*"],
-        "js": ["content.js"],
-        "run_at": "document_idle"
-      }
-    ]
-  }
+  "manifest_version": 3,
+  "name": "YouTube Custom Title + Views",
+  "short_name": "YT Remaining+",
+  "version": "1.5",
+  "description": "Hiển thị thời gian còn lại, tốc độ phát và lượt xem trên tab YouTube.",
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png",
+      "48": "icon.png"
+    }
+  },
+  "permissions": [],
+  "host_permissions": [
+    "*://*.youtube.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
