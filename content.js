@@ -1,7 +1,7 @@
 (function() {
-    const UPDATE_INTERVAL_MS = 5000; // 1000
-    const LIVE_UPDATE_TICKS = 10; // 5
-    const SETTLE_DURATION_MS = 5000; // 5000
+    const UPDATE_INTERVAL_MS = 5000;
+    const LIVE_UPDATE_TICKS = 10;
+    const SETTLE_DURATION_MS = 5000;
     
     let originalTitle = document.title || 'YouTube';
     let lastSeenVideoId = null;
@@ -16,26 +16,18 @@
   
     function abbreviateNumber(viewStr) {
         if (!viewStr) return "";
-        // Loại bỏ dấu phẩy/chấm và chuyển về số thuần túy
         const numericValue = parseFloat(viewStr.replace(/[,.]/g, ''));
         if (isNaN(numericValue)) return viewStr;
     
-        // Ngưỡng Triệu (M): 1.1M, 10M, 100M
         if (numericValue >= 1000000) {
             return (numericValue / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
         }
-        
-        // Ngưỡng chục nghìn trở lên: 10k, 100k, 999k (Không dùng thập phân)
         if (numericValue >= 10000) {
             return Math.floor(numericValue / 1000) + 'k';
         }
-    
-        // Ngưỡng nghìn (dưới 10k): 1.3k, 5k, 9.9k (Có 1 chữ số thập phân)
         if (numericValue >= 1000) {
             return (numericValue / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
         }
-    
-        // Dưới 1.000: Giữ nguyên số
         return Math.floor(numericValue).toString();
     }
 
@@ -48,6 +40,35 @@
         return h > 0 
             ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` 
             : `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    // --- HÀM LẤY ÂM LƯỢNG (TỐI ƯU SIÊU NGẮN) ---
+    function fetchVolumeText() {
+        const video = document.querySelector('video');
+        if (!video) return "";
+
+        let volPercent = null;
+        const ytSlider = document.querySelector('.ytp-volume-panel[role="slider"]');
+        if (ytSlider && ytSlider.hasAttribute('aria-valuenow')) {
+            volPercent = parseInt(ytSlider.getAttribute('aria-valuenow'), 10);
+        }
+
+        if (volPercent === null || isNaN(volPercent)) {
+            volPercent = Math.round(video.volume * 100);
+        }
+
+        // 1. Nếu bị Mute -> coi như 0%
+        if (video.muted) {
+            volPercent = 0;
+        }
+
+        // 2. Nếu Volume = 100% -> Trả về rỗng để ẩn hẳn
+        if (volPercent === 100) {
+            return '';
+        }
+
+        // 3. Các mức Volume khác (bao gồm 0%) -> Chỉ hiện số %
+        return `${volPercent}%`;
     }
 
     function fetchViewsFromDOM() {
@@ -83,7 +104,7 @@
   
     function isOurTitle(t) {
         if (!t) return false;
-        return /^([\d.,]+[kMtr]?|Live|●) - /.test(t);
+        return /^([\d.,]+[kMtr]?|Live|●) - /.test(t) || /-\s*\d+% -/.test(t);
     }
   
     function updateEverything() {
@@ -134,6 +155,11 @@
             }
         }
 
+        const volText = fetchVolumeText();
+        if (volText) {
+            prefixParts.push(volText);
+        }
+
         if (prefixParts.length > 0) {
             const newTitle = `${prefixParts.join(' - ')} - ${originalTitle}`;
             if (document.title !== newTitle) {
@@ -152,5 +178,8 @@
   
     if (intervalHandle) clearInterval(intervalHandle);
     intervalHandle = setInterval(updateEverything, UPDATE_INTERVAL_MS);
+    
+    document.addEventListener('volumechange', updateEverything, true);
+
     updateEverything();
 })();
