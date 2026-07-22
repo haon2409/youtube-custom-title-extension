@@ -1,14 +1,12 @@
 (function() {
     const UPDATE_INTERVAL_MS = 5000;
     const LIVE_UPDATE_TICKS = 10;
-    const SETTLE_DURATION_MS = 5000;
     
     let originalTitle = document.title || 'YouTube';
     let lastSeenVideoId = null;
     let lastUrl = location.href;
     let cachedViews = ""; 
     let liveTickCounter = 0;
-    let videoStartTime = 0;
     let hasFirstLiveView = false;
     
     let intervalHandle = null;
@@ -42,7 +40,6 @@
             : `${m}:${String(s).padStart(2,'0')}`;
     }
 
-    // --- HÀM LẤY ÂM LƯỢNG (TỐI ƯU SIÊU NGẮN) ---
     function fetchVolumeText() {
         const video = document.querySelector('video');
         if (!video) return "";
@@ -57,17 +54,14 @@
             volPercent = Math.round(video.volume * 100);
         }
 
-        // 1. Nếu bị Mute -> coi như 0%
         if (video.muted) {
             volPercent = 0;
         }
 
-        // 2. Nếu Volume = 100% -> Trả về rỗng để ẩn hẳn
         if (volPercent === 100) {
             return '';
         }
 
-        // 3. Các mức Volume khác (bao gồm 0%) -> Chỉ hiện số %
         return `${volPercent}%`;
     }
 
@@ -104,21 +98,19 @@
   
     function isOurTitle(t) {
         if (!t) return false;
-        return /^([\d.,]+[kMtr]?|Live|●) - /.test(t) || /-\s*\d+% -/.test(t);
+        return /^([\d.,]+[kMtr]?|\d+:\d+) - /.test(t) || /-\s*\d+% -/.test(t);
     }
   
     function updateEverything() {
         const vidId = getVideoIdFromUrl();
         const currentUrl = location.href;
         const isLive = isLiveVideo();
-        const now = Date.now();
   
         if (currentUrl !== lastUrl || (vidId && vidId !== lastSeenVideoId)) {
             lastUrl = currentUrl;
             lastSeenVideoId = vidId;
             cachedViews = ""; 
             liveTickCounter = 0;
-            videoStartTime = now;
             hasFirstLiveView = false;
             if (!isOurTitle(document.title)) originalTitle = document.title;
         }
@@ -126,6 +118,7 @@
         let prefixParts = [];
 
         if (isLive) {
+            // Live video: Giữ hiển thị lượt xem, bỏ nút tròn "●"
             if (!hasFirstLiveView || liveTickCounter % LIVE_UPDATE_TICKS === 0) {
                 const currentLiveViews = fetchViewsFromDOM();
                 if (currentLiveViews) {
@@ -135,19 +128,10 @@
             }
             liveTickCounter++;
             if (cachedViews) prefixParts.push(cachedViews);
-            prefixParts.push("●"); 
         } else {
+            // Video thường: Loại bỏ hiển thị lượt xem, chỉ lấy thời gian còn lại
             const video = document.querySelector('video');
             if (video && isFinite(video.duration) && video.duration > 0) {
-                if (now - videoStartTime < SETTLE_DURATION_MS) {
-                    const freshViews = fetchViewsFromDOM();
-                    if (freshViews) cachedViews = freshViews;
-                } else if (!cachedViews) {
-                    const lateViews = fetchViewsFromDOM();
-                    if (lateViews) cachedViews = lateViews;
-                }
-                
-                if (cachedViews) prefixParts.push(cachedViews);
                 const remainingStr = formatSeconds(
                     (video.duration - video.currentTime) / (video.playbackRate || 1)
                 );
